@@ -1,5 +1,14 @@
-import { Package, Pencil, Plus, ShoppingBag, Trash2 } from "lucide-react";
-import { useState } from "react";
+import {
+  Camera,
+  Package,
+  Pencil,
+  Plus,
+  ShoppingBag,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { OrderStatus } from "../backend.d";
 import { Button } from "../components/ui/button";
@@ -11,6 +20,7 @@ import {
   DialogTrigger,
 } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
+import { Progress } from "../components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -68,13 +78,25 @@ export default function SellerDashboard() {
   const [addOpen, setAddOpen] = useState(false);
   const [editProduct, setEditProduct] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const openAdd = () => {
     setForm(EMPTY_FORM);
+    setImageFile(null);
+    setImagePreview(null);
+    setUploadProgress(null);
     setAddOpen(true);
   };
+
   const openEdit = (p: NonNullable<typeof products>[0]) => {
     setEditProduct(p.id);
+    setImageFile(null);
+    setUploadProgress(null);
+    const existingUrl = p.imageUrl?.getDirectURL?.() ?? "";
+    setImagePreview(existingUrl || null);
     setForm({
       name: p.name,
       description: p.description,
@@ -84,12 +106,34 @@ export default function SellerDashboard() {
         : "",
       categoryId: p.categoryId,
       stock: p.stock.toString(),
-      imageUrl: p.imageUrl?.getDirectURL?.() ?? "",
+      imageUrl: existingUrl,
     });
   };
 
-  const handleSave = () => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    const objectUrl = URL.createObjectURL(file);
+    setImagePreview(objectUrl);
+  };
+
+  const clearImage = () => {
+    setImageFile(null);
+    setImagePreview(editProduct ? form.imageUrl || null : null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleSave = async () => {
     const id = editProduct ?? `p_${Date.now()}`;
+    setUploadProgress(0);
+
+    let imageBytes: Uint8Array | undefined;
+    if (imageFile) {
+      const arrayBuffer = await imageFile.arrayBuffer();
+      imageBytes = new Uint8Array(arrayBuffer);
+    }
+
     const data = {
       id,
       name: form.name,
@@ -101,7 +145,10 @@ export default function SellerDashboard() {
       categoryId: form.categoryId,
       stock: BigInt(Number.parseInt(form.stock || "0")),
       imageUrl: form.imageUrl || `https://picsum.photos/seed/${id}/400/400`,
+      imageBytes,
+      onUploadProgress: (pct: number) => setUploadProgress(pct),
     };
+
     if (editProduct) {
       updateProduct.mutate(
         { ...data, isActive: true },
@@ -109,8 +156,12 @@ export default function SellerDashboard() {
           onSuccess: () => {
             toast.success("Product updated!");
             setEditProduct(null);
+            setUploadProgress(null);
           },
-          onError: () => toast.error("Failed"),
+          onError: () => {
+            toast.error("Failed");
+            setUploadProgress(null);
+          },
         },
       );
     } else {
@@ -118,49 +169,98 @@ export default function SellerDashboard() {
         onSuccess: () => {
           toast.success("Product added!");
           setAddOpen(false);
+          setUploadProgress(null);
         },
-        onError: () => toast.error("Failed"),
+        onError: () => {
+          toast.error("Failed");
+          setUploadProgress(null);
+        },
       });
     }
   };
 
-  if (!isAuthenticated)
-    return (
-      <div className="max-w-md mx-auto px-4 py-20 text-center">
-        <ShoppingBag className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-        <h2 className="text-2xl font-bold mb-4">Seller Dashboard</h2>
-        <Button
-          className="bg-primary text-primary-foreground"
-          onClick={login}
-          data-ocid="seller.login_button"
+  const isSaving = createProduct.isPending || updateProduct.isPending;
+
+  const ImageUploadField = (
+    <div className="space-y-2">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+        data-ocid="seller.product_image_upload_button"
+      />
+
+      {imagePreview ? (
+        <div className="relative rounded-xl overflow-hidden border border-border">
+          <img
+            src={imagePreview}
+            alt="Product preview"
+            className="w-full h-48 object-cover"
+          />
+          <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="gap-1.5"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Camera className="w-4 h-4" />
+              Change Photo
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              onClick={clearImage}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+          {imageFile && (
+            <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-0.5 rounded-full">
+              New photo selected
+            </div>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full h-40 rounded-xl border-2 border-dashed border-border hover:border-primary/60 bg-muted/30 hover:bg-muted/50 transition-all flex flex-col items-center justify-center gap-2 cursor-pointer group"
+          data-ocid="seller.product_image_upload_button"
         >
-          Login to Continue
-        </Button>
-      </div>
-    );
+          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+            <Upload className="w-6 h-6 text-primary" />
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-medium text-foreground">Upload Photo</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Click to choose from your device
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            JPG, PNG, WEBP up to 10MB
+          </p>
+        </button>
+      )}
 
-  if (profLoading)
-    return (
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        <Skeleton className="h-64" />
-      </div>
-    );
-
-  if (!profile?.isSeller)
-    return (
-      <div className="max-w-md mx-auto px-4 py-20 text-center">
-        <Package className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-        <h2 className="text-2xl font-bold mb-2">Not a seller yet</h2>
-        <p className="text-muted-foreground mb-6">
-          Enable seller mode from your profile to access this dashboard.
-        </p>
-        <a href="/profile">
-          <Button className="bg-primary text-primary-foreground">
-            Go to Profile
-          </Button>
-        </a>
-      </div>
-    );
+      {uploadProgress !== null && (
+        <div
+          className="space-y-1"
+          data-ocid="seller.product_upload_loading_state"
+        >
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Uploading photo...</span>
+            <span>{uploadProgress}%</span>
+          </div>
+          <Progress value={uploadProgress} className="h-1.5" />
+        </div>
+      )}
+    </div>
+  );
 
   const ProductFormContent = (
     <div className="space-y-3">
@@ -219,21 +319,61 @@ export default function SellerDashboard() {
         onChange={(e) => setForm((f) => ({ ...f, stock: e.target.value }))}
         data-ocid="seller.product_stock_input"
       />
-      <Input
-        placeholder="Image URL"
-        value={form.imageUrl}
-        onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
-        data-ocid="seller.product_image_input"
-      />
+
+      {ImageUploadField}
+
       <Button
         className="w-full bg-primary text-primary-foreground"
         onClick={handleSave}
+        disabled={isSaving}
         data-ocid="seller.product_save_button"
       >
-        {editProduct ? "Update Product" : "Add Product"}
+        {isSaving
+          ? "Saving..."
+          : editProduct
+            ? "Update Product"
+            : "Add Product"}
       </Button>
     </div>
   );
+
+  if (!isAuthenticated)
+    return (
+      <div className="max-w-md mx-auto px-4 py-20 text-center">
+        <ShoppingBag className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+        <h2 className="text-2xl font-bold mb-4">Seller Dashboard</h2>
+        <Button
+          className="bg-primary text-primary-foreground"
+          onClick={login}
+          data-ocid="seller.login_button"
+        >
+          Login to Continue
+        </Button>
+      </div>
+    );
+
+  if (profLoading)
+    return (
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <Skeleton className="h-64" />
+      </div>
+    );
+
+  if (!profile?.isSeller)
+    return (
+      <div className="max-w-md mx-auto px-4 py-20 text-center">
+        <Package className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+        <h2 className="text-2xl font-bold mb-2">Not a seller yet</h2>
+        <p className="text-muted-foreground mb-6">
+          Enable seller mode from your profile to access this dashboard.
+        </p>
+        <a href="/profile">
+          <Button className="bg-primary text-primary-foreground">
+            Go to Profile
+          </Button>
+        </a>
+      </div>
+    );
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8" data-ocid="seller.page">

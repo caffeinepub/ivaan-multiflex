@@ -168,8 +168,16 @@ export function useCreateProduct() {
       categoryId: string;
       stock: bigint;
       imageUrl: string;
-    }) =>
-      actor!.createProduct(
+      imageBytes?: Uint8Array;
+      onUploadProgress?: (pct: number) => void;
+    }) => {
+      let blob = p.imageBytes
+        ? ExternalBlob.fromBytes(p.imageBytes as Uint8Array<ArrayBuffer>)
+        : ExternalBlob.fromURL(p.imageUrl);
+      if (p.onUploadProgress) {
+        blob = blob.withUploadProgress(p.onUploadProgress);
+      }
+      return actor!.createProduct(
         p.id,
         p.name,
         p.description,
@@ -177,8 +185,9 @@ export function useCreateProduct() {
         p.originalPrice,
         p.categoryId,
         p.stock,
-        ExternalBlob.fromURL(p.imageUrl),
-      ),
+        blob,
+      );
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
   });
 }
@@ -196,9 +205,17 @@ export function useUpdateProduct() {
       categoryId: string;
       stock: bigint;
       imageUrl: string;
+      imageBytes?: Uint8Array;
       isActive: boolean;
-    }) =>
-      actor!.updateProduct(
+      onUploadProgress?: (pct: number) => void;
+    }) => {
+      let blob = p.imageBytes
+        ? ExternalBlob.fromBytes(p.imageBytes as Uint8Array<ArrayBuffer>)
+        : ExternalBlob.fromURL(p.imageUrl);
+      if (p.onUploadProgress) {
+        blob = blob.withUploadProgress(p.onUploadProgress);
+      }
+      return actor!.updateProduct(
         p.id,
         p.name,
         p.description,
@@ -206,9 +223,10 @@ export function useUpdateProduct() {
         p.originalPrice,
         p.categoryId,
         p.stock,
-        ExternalBlob.fromURL(p.imageUrl),
+        blob,
         p.isActive,
-      ),
+      );
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
   });
 }
